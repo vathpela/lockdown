@@ -15,18 +15,16 @@ ELF_LIBS	= -lefivar
 EFI_CRT_OBJS 	= $(EFI_PATH)/crt0-efi-$(ARCH).o
 EFI_LDS		= elf_$(ARCH)_efi.lds
 
-ELF_CFLAGS	= -fpic -fshort-wchar -ggdb -O0 -Wall -Werror
-EFI_CFLAGS	= $(ELF_CFLAGS) \
+CFLAGS		= -fpic -fshort-wchar -ggdb -O0 -Wall -Werror
+ELF_CFLAGS	= $(CFLAGS) --std=gnu99
+EFI_CFLAGS	= $(CFLAGS) \
 		  -fno-builtin -fno-stack-protector -fno-strict-aliasing \
 		  -maccumulate-outgoing-args -mno-mmx -mno-red-zone \
 		  -mno-sse \
 		  $(EFI_INCLUDES)
 
 ifeq ($(ARCH),x86_64)
-	CFLAGS	+= -DEFI_FUNCTION_WRAPPER -DGNU_EFI_USE_MS_ABI
-endif
-ifneq ($(origin VENDOR_CERT_FILE), undefined)
-	CFLAGS += -DVENDOR_CERT_FILE=\"$(VENDOR_CERT_FILE)\"
+	EFI_CFLAGS	+= -DEFI_FUNCTION_WRAPPER -DGNU_EFI_USE_MS_ABI
 endif
 
 LDFLAGS		= -nostdlib -znocombreloc -T $(EFI_LDS) -shared -Bsymbolic -L$(EFI_PATH) -L$(LIB_PATH) $(EFI_CRT_OBJS)
@@ -43,6 +41,15 @@ ELF_SOURCES = elf.c
 
 all: $(TARGET)
 
+db.bin : $(DB_FILE)
+	cp $@ $^
+
+kek.bin : $(KEK_FILE)
+	cp $@ $^
+
+pk.bin : $(PK_FILE)
+	cp $@ $^
+
 lockdown.so : $(EFI_OBJS) cert.o
 	$(LD) -o $@ $(LDFLAGS) $^ $(EFI_LIBS)
 
@@ -50,7 +57,7 @@ lockdown : $(ELF_OBJS) cert.o
 	$(CC) $(ELF_CFLAGS) -o $@ $< $(ELF_LIBS)
 
 cert.o : cert.S
-	$(CC) $(CFLAGS) -c -o $@ $<
+	$(CC) $(CFLAGS) -DDB_FILE=\"db.bin\" -DKEK_FILE=\"kek.bin\" -DPK_FILE=\"pk.bin\" -c -o $@ $<
 
 $(EFI_OBJS) : %.o : %.c
 	$(CC) $(EFI_CFLAGS) -c -o $@ $^
