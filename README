@@ -1,0 +1,6 @@
+This is like James Bottomley's sign-efi-sig-list from his efitools repository,
+but specifically taylored for the constraints of a specific project.
+
+Which is to say you probably don't want it.
+
+I know I don't.
