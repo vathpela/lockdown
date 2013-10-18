@@ -203,10 +203,40 @@ main(int argc, char *argv[])
 		memcpy(&monotonic, p, sizeof (monotonic));
 		p += sizeof (monotonic);
 		left -= sizeof (monotonic);
+		build_timestamp(NULL, &time);
 	}
 
 	SECItem finished;
 	build_pkcs7(&finished, &signing_cert, &signature, &authattr);
+
+	void *auth;
+	size_t auth_size;
+
+	if (attributes & EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS) {
+		EFI_VARIABLE_AUTHENTICATION_2 *var;
+		auth_size = sizeof(EFI_VARIABLE_AUTHENTICATION_2) + \
+				finished.len;
+		auth = var = malloc(auth_size);
+
+		var->TimeStamp = time;
+		var->AuthInfo.CertType = EFI_CERT_TYPE_PKCS7_GUID;
+		var->AuthInfo.Hdr.dwLength = finished.len + offsetof(WIN_CERTIFICATE_EFI_GUID, CertData);
+		var->AuthInfo.Hdr.wRevision = 0x0200;
+		var->AuthInfo.Hdr.wCertificateType = WIN_CERT_TYPE_EFI_GUID;
+		memcpy(var->AuthInfo.CertData, finished.data, finished.len);
+	} else {
+		EFI_VARIABLE_AUTHENTICATION *var;
+		auth_size = sizeof(EFI_VARIABLE_AUTHENTICATION) + \
+				finished.len;
+		auth = var = malloc(auth_size);
+
+		var->MonotonicCount = monotonic;
+		var->AuthInfo.CertType = EFI_CERT_TYPE_PKCS7_GUID;
+		var->AuthInfo.Hdr.dwLength = finished.len + offsetof(WIN_CERTIFICATE_EFI_GUID, CertData);
+		var->AuthInfo.Hdr.wRevision = 0x0200;
+		var->AuthInfo.Hdr.wCertificateType = WIN_CERT_TYPE_EFI_GUID;
+		memcpy(var->AuthInfo.CertData, finished.data, finished.len);
+	}
 
 	int fd = open(outfile, O_CREAT|O_RDWR|O_TRUNC, 0600);
 	if (fd < 0) {
@@ -215,9 +245,8 @@ main(int argc, char *argv[])
 	}
 
 	off_t offset = 0;
-	while (offset < finished.len) {
-		off_t rc = write(fd, finished.data + offset,
-					finished.len - offset);
+	while (offset < auth_size) {
+		off_t rc = write(fd, auth + offset, auth_size - offset);
 		if (rc < 0) {
 			fprintf(stderr, "assemble: could not write output: "
 					"%m\n");
@@ -226,6 +255,18 @@ main(int argc, char *argv[])
 		}
 		offset += rc;
 	}
+	offset = 0;
+	while (offset < left) {
+		off_t rc = write(fd, p + offset, left - offset);
+		if (rc < 0) {
+			fprintf(stderr, "assemble: could not write output: "
+					"%m\n");
+			unlink(outfile);
+			exit(1);
+		}
+		offset += rc;
+	}
+	close(fd);
 
 	return 0;
 }

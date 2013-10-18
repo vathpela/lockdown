@@ -8,6 +8,9 @@
 *.esl
 *.sig
 *.unsigned
+pk.bin
+db.bin
+kek.bin
 assemble
 buildvar
 lockdown

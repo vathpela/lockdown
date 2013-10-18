@@ -4,6 +4,9 @@
 #include <seccomon.h>
 
 extern void
+build_timestamp(const char *timestr, EFI_TIME *timestamp);
+
+extern void
 build_authenticated_attributes(SECItem *output, SECItem *data,
 			       EFI_TIME *timestamp);
 

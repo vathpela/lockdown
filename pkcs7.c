@@ -1,8 +1,11 @@
 
+#define _XOPEN_SOURCE
+
 #include <efi.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "pkcs7.h"
@@ -125,6 +128,35 @@ wrap_in_seq(SECItem *der, SECItem *items, int num_items)
 		fprintf(stderr, "assemble: could not encode data\n");
 		exit(1);
 	}
+}
+
+void
+build_timestamp(const char *timestr, EFI_TIME *timestamp)
+{
+	struct tm tm;
+	char *leftover;
+
+	if (timestr == NULL) {
+		time_t t;
+		struct tm *tmp;
+		time(&t);
+		tmp = gmtime(&t);
+		memcpy(&tm, tmp, sizeof (tm));
+	} else {
+		leftover = strptime(timestr, "%c", &tm);
+		if (leftover == NULL) {
+			fprintf(stderr, "buildvar: could not parse timestamp: "
+					"%m\n");
+			exit(1);
+		}
+	}
+
+	timestamp->Year = tm.tm_year + 1900;
+	timestamp->Month = tm.tm_mon;
+	timestamp->Day = tm.tm_mday;
+	timestamp->Hour = tm.tm_hour;
+	timestamp->Minute = tm.tm_min;
+	timestamp->Second = tm.tm_sec;
 }
 
 static void
@@ -295,6 +327,9 @@ generate_content_info(SECItem *output, SECOidTag tag)
 	wrap_in_seq(output, &oid, 1);
 }
 
+extern CERTCertificate *
+__CERT_DecodeDERCertificate(SECItem *derSignedCert, PRBool copyDER, char *nickname);
+
 typedef struct {
 	SECItem issuer;
 	SECItem serial;
@@ -324,12 +359,19 @@ generate_issuer_and_serial(SECItem *output, SECItem *cert_der)
 {
 	issuer_and_serial_number iasn;
 
+	CERTCertificate *cert;
+
+	cert = __CERT_DecodeDERCertificate(cert_der, PR_FALSE, "fuckit");
+	if (!cert)
+		goto err;
+#if 0
 	CERTCertDBHandle *dbh = CERT_GetDefaultCertDB();
 	if (!dbh)
 		goto err;
 	CERTCertificate *cert = CERT_FindCertByDERCert(dbh, cert_der);
 	if (!cert)
 		goto err;
+#endif
 
 	memcpy(&iasn.issuer, &cert->derIssuer, sizeof(iasn.issuer));
 	memcpy(&iasn.serial, &cert->serialNumber, sizeof(iasn.serial));

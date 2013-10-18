@@ -1,5 +1,3 @@
-#define _XOPEN_SOURCE
-
 #include <efi/efi.h>
 #include <efivar.h>
 #include <errno.h>
@@ -11,7 +9,6 @@
 #include <sys/mman.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <time.h>
 #include <unistd.h>
 
 #include "pkcs7.h"
@@ -75,35 +72,6 @@ wstrdup(const char *s)
 
 	char_to_wchar(d, s);
 	return d;
-}
-
-static void
-build_timestamp(const char *timestr, EFI_TIME *timestamp)
-{
-	struct tm tm;
-	char *leftover;
-
-	if (timestr == NULL) {
-		time_t t;
-		struct tm *tmp;
-		time(&t);
-		tmp = gmtime(&t);
-		memcpy(&tm, tmp, sizeof (tm));
-	} else {
-		leftover = strptime(timestr, "%c", &tm);
-		if (leftover == NULL) {
-			fprintf(stderr, "buildvar: could not parse timestamp: "
-					"%m\n");
-			exit(1);
-		}
-	}
-
-	timestamp->Year = tm.tm_year + 1900;
-	timestamp->Month = tm.tm_mon;
-	timestamp->Day = tm.tm_mday;
-	timestamp->Hour = tm.tm_hour;
-	timestamp->Minute = tm.tm_min;
-	timestamp->Second = tm.tm_sec;
 }
 
 static void
