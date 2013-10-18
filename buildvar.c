@@ -1,3 +1,5 @@
+#define _XOPEN_SOURCE
+
 #include <efi/efi.h>
 #include <efivar.h>
 #include <errno.h>
@@ -9,9 +11,14 @@
 #include <sys/mman.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
+#include "pkcs7.h"
 #include "wincert.h"
+
+#include <prerror.h>
+#include <nss.h>
 
 #ifndef EFI_IMAGE_SECURITY_DATABASE_GUID
 #define EFI_IMAGE_SECURITY_DATABASE_GUID \
@@ -24,7 +31,7 @@ get_input_data(char *infile, char **in_data, size_t *in_data_size)
 	int fd = -1;
 	struct stat statbuf;
 	int rc;
-	
+
 	if (!infile || infile[0] == '\0') {
 err_data:
 		fprintf(stderr, "buildvar: no valid input data specified\n");
@@ -37,14 +44,14 @@ err:
 		fprintf(stderr, "buildvar: could not get input data: %m\n");
 		exit(1);
 	}
-	
+
 	rc = fstat(fd, &statbuf);
 	if (rc < 0)
 		goto err;
-	
+
 	if (!statbuf.st_size)
 		goto err_data;
-	
+
 	*in_data_size = statbuf.st_size;
 	*in_data = mmap(NULL, statbuf.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
 
@@ -71,7 +78,36 @@ wstrdup(const char *s)
 }
 
 static void
-build_data(char **data, size_t *data_size,
+build_timestamp(const char *timestr, EFI_TIME *timestamp)
+{
+	struct tm tm;
+	char *leftover;
+
+	if (timestr == NULL) {
+		time_t t;
+		struct tm *tmp;
+		time(&t);
+		tmp = gmtime(&t);
+		memcpy(&tm, tmp, sizeof (tm));
+	} else {
+		leftover = strptime(timestr, "%c", &tm);
+		if (leftover == NULL) {
+			fprintf(stderr, "buildvar: could not parse timestamp: "
+					"%m\n");
+			exit(1);
+		}
+	}
+
+	timestamp->Year = tm.tm_year + 1900;
+	timestamp->Month = tm.tm_mon;
+	timestamp->Day = tm.tm_mday;
+	timestamp->Hour = tm.tm_hour;
+	timestamp->Minute = tm.tm_min;
+	timestamp->Second = tm.tm_sec;
+}
+
+static void
+build_data(SECItem *data,
 		uint16_t *wname, size_t wname_len,
 		uint32_t attributes, efi_guid_t *guid,
 		char *auth_data, size_t auth_data_size,
@@ -82,8 +118,8 @@ build_data(char **data, size_t *data_size,
 			sizeof (uint32_t) +
 			auth_data_size +
 			in_data_size;
-	
-	char *p, *buf;
+
+	unsigned char *p, *buf;
 	p = buf = malloc(buf_len);
 	if (!buf) {
 		fprintf(stderr, "buildvar: could not build data for signing: %m\n");
@@ -100,8 +136,8 @@ build_data(char **data, size_t *data_size,
 	p += auth_data_size;
 	memcpy(p, in_data, in_data_size);
 
-	*data = buf;
-	*data_size = buf_len;
+	data->data = buf;
+	data->len = buf_len;
 }
 
 int
@@ -110,6 +146,7 @@ main(int argc, char *argv[])
 	char *name = NULL;
 	char *infile = NULL;
 	char *outfile = NULL;
+	char *authattrfile = NULL;
 	char *guid_str = NULL;
 	char *timestamp_str = NULL;
 	char *monotonic_str = NULL;
@@ -134,6 +171,9 @@ main(int argc, char *argv[])
 			"specify variable name", "<name>"},
 		{"output" , 'o', POPT_ARG_STRING, &outfile, 0,
 			"file to write signing payload to", "<outfile>"},
+		{"authattr", 'a', POPT_ARG_STRING, &authattrfile, 0,
+			"file to write authenticated attributes to",
+			"<authattr>" },
 		{"timestamp", 't', POPT_ARG_STRING, &timestamp_str, 0,
 			"timestamp to use for authenticated variable",
 			"<timestamp>" },
@@ -165,7 +205,7 @@ main(int argc, char *argv[])
 
 	while ((rc = poptGetNextOpt(optCon)) > 0)
 		;
-	
+
 	if (rc < -1) {
 		fprintf(stderr, "buildvar: invalid argument: %s: %s\n",
 			poptBadOption(optCon, 0), poptStrerror(rc));
@@ -203,6 +243,12 @@ main(int argc, char *argv[])
 		exit(1);
 	}
 
+	if (!authattrfile || authattrfile[0] == '\0') {
+		fprintf(stderr, "buildvar: no authenticated attributes "
+				"output file specified\n");
+		exit(1);
+	}
+
 	if (attributes == 0) {
 		fprintf(stderr, "buildvar: no attributes set\n");
 		exit(1);
@@ -216,18 +262,22 @@ main(int argc, char *argv[])
 	}
 	void *auth_data = NULL;
 	size_t auth_data_size = 0;
+	EFI_TIME timestamp = { 0,};
+	uint64_t monotonic_count = 0;
 
 	if (timestamp_str && timestamp_str[0] != '\0') {
 		attributes |=EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS;
+
+		build_timestamp(timestamp_str, &timestamp);
+		auth_data = &timestamp;
+		auth_data_size = sizeof(timestamp);
 	} else if (monotonic_str && monotonic_str[0] != '\0') {
 		attributes |= EFI_VARIABLE_AUTHENTICATED_WRITE_ACCESS;
 
-		EFI_VARIABLE_AUTHENTICATION *auth;
-
-		auth = calloc(1, sizeof (*auth));
-		auth->MonotonicCount = strtol(monotonic_str, NULL, 0);
-		auth_data = auth;
-		auth_data_size = sizeof(auth->MonotonicCount);
+		monotonic_count = strtol(monotonic_str, NULL, 0);
+		auth_data = &monotonic_count;
+		auth_data_size = sizeof(monotonic_count);
+		build_timestamp(NULL, &timestamp);
 	}
 
 	if (!(timestamp_str && timestamp_str[0] != '\0') &&
@@ -252,6 +302,27 @@ main(int argc, char *argv[])
 				"used\n");
 		exit(1);
 	}
+
+	rc = stat(authattrfile, &statbuf);
+	if (rc < 0) {
+		if (errno != ENOENT) {
+			fprintf(stderr, "buildvar: could not create output: "
+					"%m\n");
+			exit(1);
+		}
+	} else if (!force) {
+		fprintf(stderr, "buildvar: output exists and --force was not "
+				"used\n");
+		exit(1);
+	}
+
+	SECStatus status = NSS_Init("/etc/pki/pesign");
+	if (status != SECSuccess) {
+		fprintf(stderr, "Could not initialize nss: %s\n",
+			PORT_ErrorToString(PORT_GetError()));
+		exit(1);
+	}
+
 	char *in_data = NULL;
 	size_t in_data_size = 0;
 
@@ -260,10 +331,12 @@ main(int argc, char *argv[])
 	uint16_t *wname = wstrdup(name);
 	uint32_t wname_len = strlen(name) * sizeof(wchar_t);
 
-	char *data = NULL;
-	size_t data_size = 0;
+	SECItem data = {.type = siBuffer,
+			.data = NULL,
+			.len = 0
+		       };
 
-	build_data(&data, &data_size, wname, wname_len, attributes, &guid,
+	build_data(&data, wname, wname_len, attributes, &guid,
 		auth_data, auth_data_size, in_data, in_data_size);
 
 	int outfd = open(outfile, O_RDWR|O_CREAT|O_TRUNC, 0600);
@@ -273,8 +346,8 @@ main(int argc, char *argv[])
 	}
 
 	off_t pos = 0;
-	while (pos < data_size) {
-		off_t n = write(outfd, data+pos, data_size - pos);
+	while (pos < data.len) {
+		off_t n = write(outfd, data.data + pos, data.len - pos);
 		if (n >= 0)
 			pos += n;
 		if (n < 0 && errno != EAGAIN) {
@@ -284,5 +357,30 @@ main(int argc, char *argv[])
 			exit(1);
 		}
 	}
+	close(outfd);
+
+	SECItem authattr;
+	build_authenticated_attributes(&authattr, &data, &timestamp);
+
+	outfd = open(authattrfile, O_RDWR|O_CREAT|O_TRUNC, 0600);
+	if (outfd < 0) {
+		fprintf(stderr, "buildvar: could not write output: %m\n");
+		exit(1);
+	}
+
+	pos = 0;
+	while (pos < authattr.len) {
+		off_t n = write(outfd, authattr.data + pos, authattr.len - pos);
+		if (n >= 0)
+			pos += n;
+		if (n < 0 && errno != EAGAIN) {
+			fprintf(stderr, "buildvar: could not write output: "
+					"%m\n");
+			unlink(outfile);
+			exit(1);
+		}
+	}
+	close(outfd);
+
 	return 0;
 }
