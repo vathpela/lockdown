@@ -2,4 +2,13 @@
 *.efi.*
 *.o
 *.so
+*.authattr
+*.crt
+*.cer
+*.esl
+*.sig
+*.unsigned
+assemble
+buildvar
 lockdown
+Make.defaults

@@ -23,6 +23,23 @@ EFI_CFLAGS	= $(CFLAGS) \
 		  -mno-sse \
 		  $(EFI_INCLUDES)
 
+NSS_LIBS	= $(shell pkg-config --libs nss)
+NSS_INCL	= $(shell pkg-config --cflags nss)
+
+-include Make.defaults
+
+ifeq "$(origin DB_FILE)" "undefined"
+  $(error "DB_FILE must be defined")
+endif
+
+ifeq "$(origin KEK_FILE)" "undefined"
+  $(error "KEK_FILE must be defined")
+endif
+
+ifeq "$(origin PK_FILE)" "undefined"
+  $(error "PK_FILE must be defined")
+endif
+
 ifeq ($(ARCH),x86_64)
 	EFI_CFLAGS	+= -DEFI_FUNCTION_WRAPPER -DGNU_EFI_USE_MS_ABI
 endif
@@ -31,7 +48,7 @@ LDFLAGS		= -nostdlib -znocombreloc -T $(EFI_LDS) -shared -Bsymbolic -L$(EFI_PATH
 
 VERSION		= 0.1
 
-TARGET	= lockdown.efi lockdown
+TARGET	= lockdown.efi lockdown buildvar assemble
 
 EFI_OBJS = efi.o
 EFI_SOURCES = efi.c
@@ -42,13 +59,15 @@ ELF_SOURCES = elf.c
 all: $(TARGET)
 
 db.bin : $(DB_FILE)
-	cp $@ $^
+	cp $^ $@
 
 kek.bin : $(KEK_FILE)
-	cp $@ $^
+	cp $^ $@
 
 pk.bin : $(PK_FILE)
-	cp $@ $^
+	cp $^ $@
+
+.PRECIOUS: pk.bin kek.bin db.bin
 
 lockdown.so : $(EFI_OBJS) cert.o
 	$(LD) -o $@ $(LDFLAGS) $^ $(EFI_LIBS)
@@ -56,7 +75,29 @@ lockdown.so : $(EFI_OBJS) cert.o
 lockdown : $(ELF_OBJS) cert.o
 	$(CC) $(ELF_CFLAGS) -o $@ $< $(ELF_LIBS)
 
-cert.o : cert.S
+# sample invocation:
+# buildvar -d redhatsecureboot003.esl -t "Fri Oct 18 13:55:00 2013" -n PK \
+#          -N -B -R --force \
+#          -o redhatsecureboot003.unsigned -a redhatsecureboot003.authattr
+BUILDVAR_SOURCES = buildvar.c pkcs7.c pkcs7.h
+buildvar : $(BUILDVAR_SOURCES)
+	$(CC) $(ELF_CFLAGS) -I$(EFI_INCLUDE) -I$(EFI_INCLUDE)/$(ARCH) \
+		$(NSS_INCL) -o $@ $(filter %.c, $(BUILDVAR_SOURCES)) \
+		-lpopt -lefivar $(NSS_LIBS)
+
+# sample invocation:
+# ./assemble -n PK -s redhatsecureboot003.unsigned \
+# 		   -a redhatsecureboot003.authattr \
+# 		   -c redhatsecureboot003.cer \
+# 		   -S redhatsecureboot003.sig \
+# 		   -o variable
+ASSEMBLE_SOURCES = assemble.c pkcs7.c pkcs7.h
+assemble : $(ASSEMBLE_SOURCES)
+	$(CC) $(ELF_CFLAGS) -I$(EFI_INCLUDE) -I$(EFI_INCLUDE)/$(ARCH) \
+		$(NSS_INCL) -o $@ $(filter %.c, $(ASSEMBLE_SOURCES)) \
+		-lpopt -lefivar $(NSS_LIBS)
+
+cert.o : cert.S pk.bin kek.bin db.bin
 	$(CC) $(CFLAGS) -DDB_FILE=\"db.bin\" -DKEK_FILE=\"kek.bin\" -DPK_FILE=\"pk.bin\" -c -o $@ $<
 
 $(EFI_OBJS) : %.o : %.c

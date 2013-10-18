@@ -38,4 +38,18 @@ typedef struct {
 	WIN_CERTIFICATE_EFI_GUID AuthInfo;
 } EFI_VARIABLE_AUTHENTICATION_2;
 
+typedef struct {
+	EFI_GUID SignatureOwner;
+	// UINT8 SignatureData[1];
+} EFI_SIGNATURE_DATA;
+
+typedef struct {
+	EFI_GUID SignatureType;
+	UINT32 SignatureListSize;
+	UINT32 SignatureHeaderSize;
+	UINT32 SignatureSize;
+	// UINT8 SignatureHeader[SignatureHeaderSize];
+	// EFI_SIGNATURE_DATA Signatures[][SignatureSize];
+} EFI_SIGNATURE_LIST;
+
 #endif /* _WINCERT_H */
