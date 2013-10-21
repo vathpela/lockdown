@@ -2,12 +2,14 @@
 #define _XOPEN_SOURCE
 
 #include <efi.h>
+#include <efivar.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
 #include <unistd.h>
 
+#include "wincert.h"
 #include "pkcs7.h"
 
 #include <prerror.h>
@@ -71,7 +73,6 @@ generate_tuple(SECItem *output, SECItem *one, SECItem *two)
 		fprintf(stderr, "assemble: could not encode data\n");
 		exit(1);
 	}
-
 }
 
 static SEC_ASN1Template SetTemplate = {
@@ -319,13 +320,15 @@ generate_digest_algorithms(SECItem *output, SECOidTag tag)
 }
 
 static void
-generate_content_info(SECItem *output, SECOidTag tag)
+generate_oid_sequence(SECItem *output, SECOidTag tag)
 {
 	SECItem oid;
-	generate_object_id(&oid, tag);
 
+	generate_object_id(&oid, tag);
 	wrap_in_seq(output, &oid, 1);
 }
+
+#define generate_content_info(output, tag) generate_oid_sequence(output, tag)
 
 extern CERTCertificate *
 __CERT_DecodeDERCertificate(SECItem *derSignedCert, PRBool copyDER, char *nickname);
@@ -668,13 +671,109 @@ build_message_digest(SECItem *output, SECItem *data)
 }
 
 static void
+generate_oid_sequence_value(SECItem *output, SECOidTag tag, uint8_t value)
+{
+	SECItem oid;
+	SECItem integer;
+
+	generate_object_id(&oid, tag);
+	generate_integer(&integer, value, 1);
+
+	generate_tuple(output, &oid, &integer);
+}
+
+typedef struct {
+	SECItem aes256cbc;
+	SECItem aes192cbc;
+	SECItem aes128cbc;
+	SECItem desede3cbc;
+	SECItem rc2cbc0;
+	SECItem rc2cbc1;
+	SECItem descbc;
+	SECItem rc2cbc2;
+} smime_cap_list;
+
+static SEC_ASN1Template SmimeCapListTemplate[] = {
+	{.kind = SEC_ASN1_SEQUENCE,
+	 .offset = 0,
+	 .sub = NULL,
+	 .size = 0,
+	},
+	{.kind = SEC_ASN1_ANY,
+	 .offset = offsetof(smime_cap_list, aes256cbc),
+	 .sub = &SEC_AnyTemplate,
+	 .size = sizeof (SECItem),
+	},
+	{.kind = SEC_ASN1_ANY,
+	 .offset = offsetof(smime_cap_list, aes192cbc),
+	 .sub = &SEC_AnyTemplate,
+	 .size = sizeof (SECItem),
+	},
+	{.kind = SEC_ASN1_ANY,
+	 .offset = offsetof(smime_cap_list, aes128cbc),
+	 .sub = &SEC_AnyTemplate,
+	 .size = sizeof (SECItem),
+	},
+	{.kind = SEC_ASN1_ANY,
+	 .offset = offsetof(smime_cap_list, desede3cbc),
+	 .sub = &SEC_AnyTemplate,
+	 .size = sizeof (SECItem),
+	},
+	{.kind = SEC_ASN1_ANY,
+	 .offset = offsetof(smime_cap_list, rc2cbc0),
+	 .sub = &SEC_AnyTemplate,
+	 .size = sizeof (SECItem),
+	},
+	{.kind = SEC_ASN1_ANY,
+	 .offset = offsetof(smime_cap_list, rc2cbc1),
+	 .sub = &SEC_AnyTemplate,
+	 .size = sizeof (SECItem),
+	},
+	{.kind = SEC_ASN1_ANY,
+	 .offset = offsetof(smime_cap_list, descbc),
+	 .sub = &SEC_AnyTemplate,
+	 .size = sizeof (SECItem),
+	},
+	{.kind = SEC_ASN1_ANY,
+	 .offset = offsetof(smime_cap_list, rc2cbc2),
+	 .sub = &SEC_AnyTemplate,
+	 .size = sizeof (SECItem),
+	},
+	{ 0 }
+};
+
+static void
+build_smime_cap_list(SECItem *output)
+{
+	smime_cap_list scl;
+
+	generate_oid_sequence(&scl.aes256cbc, SEC_OID_AES_256_CBC);
+	generate_oid_sequence(&scl.aes192cbc, SEC_OID_AES_192_CBC);
+	generate_oid_sequence(&scl.aes128cbc, SEC_OID_AES_128_CBC);
+	generate_oid_sequence(&scl.desede3cbc, SEC_OID_DES_EDE3_CBC);
+	generate_oid_sequence_value(&scl.rc2cbc0, SEC_OID_RC2_CBC, 0x80);
+	generate_oid_sequence_value(&scl.rc2cbc1, SEC_OID_RC2_CBC, 0x40);
+	generate_oid_sequence(&scl.descbc, SEC_OID_DES_CBC);
+	generate_oid_sequence_value(&scl.rc2cbc2, SEC_OID_RC2_CBC, 0x28);
+
+	void *ret;
+	ret = SEC_ASN1EncodeItem(NULL, output, &scl, SmimeCapListTemplate);
+	if (ret == NULL) {
+		fprintf(stderr, "assemble: could not encode data\n");
+		exit(1);
+	}
+
+}
+
+static void
 build_smime_caps(SECItem *output)
 {
-	SECItem oid, set, seq;
-	SECItem *items[2] = {&seq, NULL};
+	SECItem oid, set;
+	SECItem smime_caps;
+	SECItem *items[2] = {&smime_caps, NULL};
 
 	generate_object_id(&oid, SEC_OID_PKCS9_SMIME_CAPABILITIES);
-	wrap_in_seq(&seq, NULL, 0);
+	build_smime_cap_list(&smime_caps);
 	wrap_in_set(&set, items);
 	generate_tuple(output, &oid, &set);
 }

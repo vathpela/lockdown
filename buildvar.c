@@ -11,8 +11,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include "pkcs7.h"
 #include "wincert.h"
+#include "pkcs7.h"
 
 #include <prerror.h>
 #include <nss.h>

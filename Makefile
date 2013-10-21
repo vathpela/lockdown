@@ -79,7 +79,7 @@ lockdown : $(ELF_OBJS) cert.o
 # buildvar -d redhatsecureboot003.esl -t "Fri Oct 18 13:55:00 2013" -n PK \
 #          -N -B -R --force \
 #          -o redhatsecureboot003.unsigned -a redhatsecureboot003.authattr
-BUILDVAR_SOURCES = buildvar.c pkcs7.c pkcs7.h
+BUILDVAR_SOURCES = buildvar.c pkcs7.c pkcs7.h wincert.h
 buildvar : $(BUILDVAR_SOURCES)
 	$(CC) $(ELF_CFLAGS) -I$(EFI_INCLUDE) -I$(EFI_INCLUDE)/$(ARCH) \
 		$(NSS_INCL) -o $@ $(filter %.c, $(BUILDVAR_SOURCES)) \
@@ -91,7 +91,7 @@ buildvar : $(BUILDVAR_SOURCES)
 # 		   -c redhatsecureboot003.cer \
 # 		   -S redhatsecureboot003.sig \
 # 		   -o variable
-ASSEMBLE_SOURCES = assemble.c pkcs7.c pkcs7.h
+ASSEMBLE_SOURCES = assemble.c pkcs7.c pkcs7.h wincert.h
 assemble : $(ASSEMBLE_SOURCES)
 	$(CC) $(ELF_CFLAGS) -I$(EFI_INCLUDE) -I$(EFI_INCLUDE)/$(ARCH) \
 		$(NSS_INCL) -o $@ $(filter %.c, $(ASSEMBLE_SOURCES)) \

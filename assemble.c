@@ -179,8 +179,11 @@ main(int argc, char *argv[])
 	map_file(authattr_file, &authattr);
 
 	size_t name_len = strlen(name);
-	size_t left = signed_data.len - name_len; 
-	unsigned char *p = signed_data.data + name_len;
+	size_t left = signed_data.len;
+	unsigned char *p = signed_data.data + name_len * sizeof(uint16_t);
+
+
+	left -= name_len * sizeof(uint16_t);
 
 	efi_guid_t guid;
 	memcpy(&guid, p, sizeof(guid));
@@ -206,17 +209,23 @@ main(int argc, char *argv[])
 		build_timestamp(NULL, &time);
 	}
 
+	//p += 2;
+	//left -= 2;
 	SECItem finished;
 	build_pkcs7(&finished, &signing_cert, &signature, &authattr);
 
-	void *auth;
+	printf("Authentication payload size %u\n", signed_data.len);
+	printf("Signature Size %u\n", finished.len);
+
+	char *auth;
 	size_t auth_size;
 
 	if (attributes & EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS) {
 		EFI_VARIABLE_AUTHENTICATION_2 *var;
 		auth_size = sizeof(EFI_VARIABLE_AUTHENTICATION_2) + \
 				finished.len;
-		auth = var = malloc(auth_size);
+		var = malloc(auth_size);
+		auth = (char *)var;
 
 		var->TimeStamp = time;
 		var->AuthInfo.CertType = EFI_CERT_TYPE_PKCS7_GUID;
@@ -224,11 +233,13 @@ main(int argc, char *argv[])
 		var->AuthInfo.Hdr.wRevision = 0x0200;
 		var->AuthInfo.Hdr.wCertificateType = WIN_CERT_TYPE_EFI_GUID;
 		memcpy(var->AuthInfo.CertData, finished.data, finished.len);
+		auth_size = offsetof(EFI_VARIABLE_AUTHENTICATION_2, AuthInfo.CertData) + finished.len;
 	} else {
 		EFI_VARIABLE_AUTHENTICATION *var;
 		auth_size = sizeof(EFI_VARIABLE_AUTHENTICATION) + \
 				finished.len;
-		auth = var = malloc(auth_size);
+		var = malloc(auth_size);
+		auth = (char *)var;
 
 		var->MonotonicCount = monotonic;
 		var->AuthInfo.CertType = EFI_CERT_TYPE_PKCS7_GUID;
@@ -236,6 +247,7 @@ main(int argc, char *argv[])
 		var->AuthInfo.Hdr.wRevision = 0x0200;
 		var->AuthInfo.Hdr.wCertificateType = WIN_CERT_TYPE_EFI_GUID;
 		memcpy(var->AuthInfo.CertData, finished.data, finished.len);
+		auth_size = offsetof(EFI_VARIABLE_AUTHENTICATION_2, AuthInfo.CertData) + finished.len;
 	}
 
 	int fd = open(outfile, O_CREAT|O_RDWR|O_TRUNC, 0600);
@@ -245,6 +257,7 @@ main(int argc, char *argv[])
 	}
 
 	off_t offset = 0;
+	printf("writing %ld\n", auth_size);
 	while (offset < auth_size) {
 		off_t rc = write(fd, auth + offset, auth_size - offset);
 		if (rc < 0) {
@@ -256,6 +269,7 @@ main(int argc, char *argv[])
 		offset += rc;
 	}
 	offset = 0;
+	printf("writing %ld\n", left);
 	while (offset < left) {
 		off_t rc = write(fd, p + offset, left - offset);
 		if (rc < 0) {
