@@ -30,8 +30,11 @@
 #include <efi.h>
 #include <efilib.h>
 
-extern UINT8 *kek, *db, *pk;
-extern UINTN kek_len, db_len, pk_len;
+#define EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS 0x0000000000000020
+
+#include "KEK.h"
+#include "PK.h"
+#include "DB.h"
 
 #define EFI_IMAGE_SECURITY_DATABASE_GUID { 0xd719b2cb, 0x3d3a, 0x4596, { 0xa3, 0xbc, 0xda, 0xd0, 0x0e, 0x67, 0x65, 0x6f }}
 
@@ -54,11 +57,13 @@ EFI_STATUS efi_main (EFI_HANDLE image_handle, EFI_SYSTEM_TABLE *systab)
 	}
 
 	Print(L"Platform is in setup mode\n");
-	Print(L"Creating db: ");
-	status = uefi_call_wrapper(RT->SetVariable, 5, L"db", &security,
-		EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_RUNTIME_ACCESS |
-			EFI_VARIABLE_BOOTSERVICE_ACCESS,
-		db_len, db);
+	Print(L"Creating KEK: ");
+	status = uefi_call_wrapper(RT->SetVariable, 5, L"KEK", &global,
+		EFI_VARIABLE_NON_VOLATILE |
+		EFI_VARIABLE_RUNTIME_ACCESS |
+		EFI_VARIABLE_BOOTSERVICE_ACCESS|
+		EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS,
+		KEK_auth_len, KEK_auth);
 	if (EFI_ERROR(status)) {
 		Print(L"Failed: %d\n", status);
 		uefi_call_wrapper(BS->Stall, 1, 2000000);
@@ -67,11 +72,14 @@ EFI_STATUS efi_main (EFI_HANDLE image_handle, EFI_SYSTEM_TABLE *systab)
 		Print(L"Success\n");
 	}
 
-	Print(L"Creating KEK: ");
-	status = uefi_call_wrapper(RT->SetVariable, 5, L"KEK", &global,
-		EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_RUNTIME_ACCESS |
-			EFI_VARIABLE_BOOTSERVICE_ACCESS,
-		kek_len, kek);
+
+	Print(L"Creating db: ");
+	status = uefi_call_wrapper(RT->SetVariable, 5, L"db", &security,
+		EFI_VARIABLE_NON_VOLATILE |
+		EFI_VARIABLE_RUNTIME_ACCESS |
+		EFI_VARIABLE_BOOTSERVICE_ACCESS|
+		EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS,
+		DB_auth_len, DB_auth);
 	if (EFI_ERROR(status)) {
 		Print(L"Failed: %d\n", status);
 		uefi_call_wrapper(BS->Stall, 1, 2000000);
@@ -82,9 +90,11 @@ EFI_STATUS efi_main (EFI_HANDLE image_handle, EFI_SYSTEM_TABLE *systab)
 
 	Print(L"Creating PK: ");
 	status = uefi_call_wrapper(RT->SetVariable, 5, L"PK", &global,
-		EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_RUNTIME_ACCESS |
-			EFI_VARIABLE_BOOTSERVICE_ACCESS,
-		pk_len, pk);
+		EFI_VARIABLE_NON_VOLATILE |
+		EFI_VARIABLE_RUNTIME_ACCESS |
+		EFI_VARIABLE_BOOTSERVICE_ACCESS|
+		EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS,
+		PK_auth_len, PK_auth);
 	if (EFI_ERROR(status)) {
 		Print(L"Failed: %d\n", status);
 		uefi_call_wrapper(BS->Stall, 1, 2000000);

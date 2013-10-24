@@ -21,6 +21,7 @@ EFI_CFLAGS	= $(CFLAGS) \
 		  -fno-builtin -fno-stack-protector -fno-strict-aliasing \
 		  -maccumulate-outgoing-args -mno-mmx -mno-red-zone \
 		  -mno-sse \
+		  -DEFI_FUNCTION_WRAPPER -DGNU_EFI_USE_MS_ABI \
 		  $(EFI_INCLUDES)
 
 NSS_LIBS	= $(shell pkg-config --libs nss)
@@ -51,28 +52,24 @@ VERSION		= 0.1
 TARGET	= lockdown.efi lockdown buildvar assemble
 
 EFI_OBJS = efi.o
-EFI_SOURCES = efi.c
+EFI_SOURCES = efi.c DB.h KEK.h PK.h
 
 ELF_OBJS = elf.o
-ELF_SOURCES = elf.c
+ELF_SOURCES = elf.c DB.h KEK.h PK.h
 
 all: $(TARGET)
 
-db.bin : $(DB_FILE)
-	cp $^ $@
+%.h : %.auth
+	xxd -i $^ > $@
 
-kek.bin : $(KEK_FILE)
-	cp $^ $@
+$(EFI_OBJS) : $(EFI_SOURCES)
 
-pk.bin : $(PK_FILE)
-	cp $^ $@
+$(ELF_OBJS) : $(ELF_SOURCES)
 
-.PRECIOUS: pk.bin kek.bin db.bin
-
-lockdown.so : $(EFI_OBJS) cert.o
+lockdown.so : $(EFI_OBJS)
 	$(LD) -o $@ $(LDFLAGS) $^ $(EFI_LIBS)
 
-lockdown : $(ELF_OBJS) cert.o
+lockdown : $(ELF_OBJS)
 	$(CC) $(ELF_CFLAGS) -o $@ $< $(ELF_LIBS)
 
 # sample invocation:
@@ -101,10 +98,10 @@ cert.o : cert.S pk.bin kek.bin db.bin
 	$(CC) $(CFLAGS) -DDB_FILE=\"db.bin\" -DKEK_FILE=\"kek.bin\" -DPK_FILE=\"pk.bin\" -c -o $@ $<
 
 $(EFI_OBJS) : %.o : %.c
-	$(CC) $(EFI_CFLAGS) -c -o $@ $^
+	$(CC) $(EFI_CFLAGS) -c -o $@ $(filter %.c, $^)
 
 $(ELF_OBJS) : %.o : %.c
-	$(CC) $(ELF_CFLAGS) -c -o $@ $^
+	$(CC) $(ELF_CFLAGS) -c -o $@ $(filter %.c, $^)
 
 %.efi: %.so
 	objcopy -j .text -j .sdata -j .data \
@@ -120,8 +117,9 @@ $(ELF_OBJS) : %.o : %.c
 		--target=efi-app-$(ARCH) $^ $@.debug
 
 clean:
-	rm -f $(TARGET) $(ELF_OBJS) $(EFI_OBJS)
-	rm -f *.debug *.so *.efi *.tar.*
+	@rm -vf $(TARGET) $(ELF_OBJS) $(EFI_OBJS)
+	@rm -vf *.debug *.so *.efi *.tar.*
+	@rm -vf DB.h KEK.h PK.h
 
 GITTAG = $(VERSION)
 
