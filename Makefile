@@ -123,6 +123,9 @@ clean:
 
 GITTAG = $(VERSION)
 
+tag:
+	git tag $(GITTAG) refs/heads/master
+
 test-archive:
 	@rm -rf /tmp/lockdown-$(VERSION) /tmp/lockdown-$(VERSION)-tmp
 	@mkdir -p /tmp/lockdown-$(VERSION)-tmp
@@ -134,8 +137,7 @@ test-archive:
 	@rm -rf /tmp/lockdown-$(VERSION)
 	@echo "The archive is in lockdown-$(VERSION).tar.bz2"
 
-archive:
-	git tag $(GITTAG) refs/heads/master
+archive: tag
 	@rm -rf /tmp/lockdown-$(VERSION) /tmp/lockdown-$(VERSION)-tmp
 	@mkdir -p /tmp/lockdown-$(VERSION)-tmp
 	@git archive --format=tar $(GITTAG) | ( cd /tmp/lockdown-$(VERSION)-tmp/ ; tar x )
