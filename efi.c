@@ -56,6 +56,12 @@ EFI_STATUS efi_main (EFI_HANDLE image_handle, EFI_SYSTEM_TABLE *systab)
 		return EFI_SUCCESS;
 	}
 
+	if (byte != 1) {
+		Print(L"Platform is not in setup mode\n");
+		uefi_call_wrapper(BS->Stall, 1, 2000000);
+		return EFI_SUCCESS;
+	}
+
 	Print(L"Platform is in setup mode\n");
 	Print(L"Creating KEK: ");
 	status = uefi_call_wrapper(RT->SetVariable, 5, L"KEK", &global,
